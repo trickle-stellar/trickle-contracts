@@ -1,2 +1,2 @@
 # trickle-contracts
-Soroban smart contracts for Verity — Decentralized crowdfunding platform on Stellar
+Soroban smart contracts for Verity — Continuous payment streaming protocol on Stellar
