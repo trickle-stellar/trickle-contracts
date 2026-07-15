@@ -1,0 +1,16 @@
+[package]
+name = "trickle-stream"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Trickle stream instance — per-stream contract holding escrow and managing accrual"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+soroban-sdk = { workspace = true }
+trickle-common = { workspace = true }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }

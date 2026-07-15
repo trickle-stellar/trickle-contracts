@@ -1,0 +1,16 @@
+[package]
+name = "trickle-fees"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Trickle fee collector — protocol fee calculation and collection"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+soroban-sdk = { workspace = true }
+trickle-common = { workspace = true }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }
