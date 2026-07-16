@@ -128,6 +128,34 @@ Wraps stream receiver role as a Stellar custom asset. Transferring the token tra
 | `burn` | Revoke receiver role |
 | `owner_of` | Read-only: current owner |
 
+## Project Structure
+
+```
+trickle-contracts/
+├── Cargo.toml                    # Workspace root (soroban-sdk v22)
+├── LICENSE
+├── README.md
+├── CONTRIBUTING.md
+├── CODE_OF_CONDUCT.md
+├── .editorconfig
+├── .github/
+│   ├── workflows/ci.yml
+│   ├── ISSUE_TEMPLATE/
+│   │   ├── bug_report.md
+│   │   ├── contract_task.md
+│   │   └── feature_request.md
+│   └── pull_request_template.md
+└── contracts/
+    ├── common/                   # Shared types (trickle-common)
+    │   └── src/lib.rs
+    ├── stream/                   # Per-stream escrow contract
+    ├── factory/                  # Deploy + registry
+    ├── fees/                     # Protocol fee management
+    ├── multistream/              # Multi-recipient splits
+    ├── vesting/                  # Cliff + linear vesting
+    └── stream-nft/               # Stream receivership as NFT
+```
+
 ## Module Structure
 
 Each contract follows a consistent modular layout:
