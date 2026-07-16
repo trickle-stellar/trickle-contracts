@@ -1,11 +1,11 @@
 #![no_std]
 #![allow(clippy::too_many_arguments)]
 
-#[allow(dead_code)]
-mod storage;
+mod events;
 #[allow(dead_code)]
 mod math;
-mod events;
+#[allow(dead_code)]
+mod storage;
 
 use soroban_sdk::{contract, contractimpl, Address, Env};
 use trickle_common::{StreamError, StreamInfo};

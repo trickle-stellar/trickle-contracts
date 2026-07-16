@@ -3,6 +3,8 @@ name = "trickle-stream"
 version = "0.1.0"
 edition = "2021"
 publish = false
+license = "MIT"
+repository = "https://github.com/trickle-stellar/trickle-contracts"
 description = "Trickle stream instance — per-stream contract holding escrow and managing accrual"
 
 [lib]

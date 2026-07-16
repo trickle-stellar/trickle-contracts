@@ -23,7 +23,7 @@ Any alternative approaches you've thought about.
 Which contract(s) does this affect?
 
 - [ ] `trickle-stream` (core streaming contract)
-- [ ] `stream-factory` (planned)
+- [ ] `trickle-factory` (planned)
 - [ ] Other: ___
 
 ## Additional Context
