@@ -51,7 +51,7 @@ Money flows per second. No more end-of-month payroll. No more 30-day invoice cyc
 
 Shared types and error enums used by all contracts. An `rlib` crate — not deployed directly.
 
-### `trickle-stream` (implemented)
+### `trickle-stream` (scaffolded)
 
 Per-stream contract instance. Deployed by the factory. Holds escrowed tokens and manages its own accrual, withdrawal, pause/resume, and cancellation logic.
 
@@ -66,7 +66,7 @@ Per-stream contract instance. Deployed by the factory. Holds escrowed tokens and
 | `get_info` | Read-only: full stream metadata |
 | `update_recipient` | NFT contract transfers receivership |
 
-### `trickle-factory` (implemented)
+### `trickle-factory` (scaffolded)
 
 Factory that deploys per-stream contract instances and maintains a registry.
 
@@ -78,7 +78,7 @@ Factory that deploys per-stream contract instances and maintains a registry.
 | `get_streams_by_sender` | All stream IDs for a sender |
 | `get_streams_by_recipient` | All stream IDs for a recipient |
 
-### `trickle-fees` (implemented)
+### `trickle-fees` (scaffolded)
 
 Protocol fee collection. Upgradeable independently.
 
@@ -91,7 +91,7 @@ Protocol fee collection. Upgradeable independently.
 | `set_fee_rate` | Update fee rate (admin only) |
 | `withdraw_fees` | Send accumulated fees to recipient |
 
-### `trickle-multistream` (implemented)
+### `trickle-multistream` (scaffolded)
 
 Split a single stream across multiple recipients by weight.
 
@@ -104,7 +104,7 @@ Split a single stream across multiple recipients by weight.
 | `pause` / `resume` / `cancel` | Lifecycle management |
 | `get_claimable` | Read-only: claimable for a recipient |
 
-### `trickle-vesting` (implemented)
+### `trickle-vesting` (scaffolded)
 
 Time-locked token release with cliff + linear vesting.
 
@@ -116,7 +116,7 @@ Time-locked token release with cliff + linear vesting.
 | `get_status` | Read-only: full vesting info |
 | `get_flow_rate` | Read-only: tokens per second |
 
-### `trickle-stream-nft` (implemented)
+### `trickle-stream-nft` (scaffolded)
 
 Wraps stream receiver role as a Stellar custom asset. Transferring the token transfers the right to receive future payments.
 
