@@ -7,7 +7,7 @@ use soroban_sdk::{contracterror, contracttype, Address};
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /// Status of a payment stream through its lifecycle.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[contracttype]
 pub enum StreamStatus {
     Active,
@@ -53,6 +53,8 @@ pub enum StreamError {
     InvalidFlowRate = 8,
     ZeroAmount = 9,
     NothingToWithdraw = 10,
+    /// Attempted to resume a stream that is not currently paused.
+    StreamNotPaused = 11,
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
