@@ -2,13 +2,11 @@
 #![allow(clippy::too_many_arguments)]
 
 mod events;
-#[allow(dead_code)]
 mod math;
-#[allow(dead_code)]
 mod storage;
 
-use soroban_sdk::{contract, contractimpl, Address, Env};
-use trickle_common::{StreamError, StreamInfo};
+use soroban_sdk::{contract, contractimpl, token, Address, Env};
+use trickle_common::{StreamError, StreamInfo, StreamStatus};
 
 use storage::StreamConfig;
 
@@ -56,6 +54,8 @@ impl StreamContract {
             withdrawn_amount: 0,
             start_time,
             last_update_time: start_time,
+            status: StreamStatus::Active,
+            paused_at: None,
         };
 
         storage::set_config(&env, &config);
@@ -72,7 +72,7 @@ impl StreamContract {
     ///
     /// # Expected behavior
     /// 1. Require auth from the stream's recipient.
-    /// 2. Load config, verify status is Active.
+    /// 2. Load config, verify the stream is not cancelled.
     /// 3. Calculate claimable = `math::calculate_claimable`.
     /// 4. If claimable <= 0, return `NothingToWithdraw`.
     /// 5. Transfer claimable from this contract to recipient via token client.
@@ -87,19 +87,29 @@ impl StreamContract {
         if recipient != config.recipient {
             return Err(StreamError::Unauthorized);
         }
+        if config.status == StreamStatus::Cancelled {
+            return Err(StreamError::StreamNotActive);
+        }
 
-        let claimable = math::calculate_claimable(&config, env.ledger().timestamp());
+        let current_time = env.ledger().timestamp();
+        let claimable = math::calculate_claimable(&config, current_time);
 
         if claimable <= 0 {
             return Err(StreamError::NothingToWithdraw);
         }
 
-        // TODO: Transfer tokens to recipient.
-        //   let token = soroban_sdk::token::Client::new(&env, &config.asset);
-        //   token.transfer(&env.current_contract_address(), &config.recipient, &claimable);
+        // Transfer the accrued tokens from this stream's escrow to the recipient.
+        let token = token::Client::new(&env, &config.asset);
+        token.transfer(
+            &env.current_contract_address(),
+            &config.recipient,
+            &claimable,
+        );
 
+        // Advance the checkpoint to the effective time. While paused this is the
+        // frozen pause timestamp, so the checkpoint never drifts through a paused window.
         config.withdrawn_amount += claimable;
-        config.last_update_time = env.ledger().timestamp();
+        config.last_update_time = math::effective_time(&config, current_time);
         storage::set_config(&env, &config);
 
         events::withdrawn(&env, &config.recipient, claimable);
@@ -109,7 +119,9 @@ impl StreamContract {
 
     /// Pause an active stream. Only the sender (funder) can pause.
     ///
-    /// While paused, no new funds accrue. The stream can be resumed later.
+    /// While paused, no new funds accrue: accrual is frozen at the pause
+    /// timestamp and the paused window is excluded entirely on resume.
+    /// The stream can be resumed later.
     pub fn pause(env: Env, sender: Address) -> Result<(), StreamError> {
         sender.require_auth();
 
@@ -118,11 +130,14 @@ impl StreamContract {
         if sender != config.sender {
             return Err(StreamError::Unauthorized);
         }
+        if math::derive_status(&config) != StreamStatus::Active {
+            return Err(StreamError::StreamNotActive);
+        }
 
-        // TODO: Check status is Active (need to store/derive status).
-        // For now, status tracking is a placeholder in math::derive_status.
-
-        config.last_update_time = env.ledger().timestamp();
+        // Freeze accrual at the pause timestamp without moving the accrual
+        // checkpoint, so the recipient keeps the amount accrued up to this point.
+        config.status = StreamStatus::Paused;
+        config.paused_at = Some(env.ledger().timestamp());
         storage::set_config(&env, &config);
 
         events::paused(&env, &sender);
@@ -132,8 +147,9 @@ impl StreamContract {
 
     /// Resume a paused stream. Only the sender (funder) can resume.
     ///
-    /// Resets the last_update_time to the current ledger time so that
-    /// paused duration is excluded from accrual.
+    /// Rolls the accrual checkpoint back by the paused window, so the amount
+    /// accrued before the pause is preserved while the paused duration itself
+    /// remains excluded from accrual.
     pub fn resume(env: Env, sender: Address) -> Result<(), StreamError> {
         sender.require_auth();
 
@@ -142,10 +158,19 @@ impl StreamContract {
         if sender != config.sender {
             return Err(StreamError::Unauthorized);
         }
+        if config.status != StreamStatus::Paused {
+            return Err(StreamError::StreamNotPaused);
+        }
 
-        // TODO: Check status is Paused.
+        let now = env.ledger().timestamp();
+        let paused_at = config.paused_at.expect("paused stream must have paused_at");
+        let excluded = paused_at.saturating_sub(config.last_update_time);
 
-        config.last_update_time = env.ledger().timestamp();
+        // Rewind the checkpoint by the excluded (paused) window. The pre-pause
+        // accrual is retained, and nothing accrued during the pause.
+        config.last_update_time = now.saturating_sub(excluded);
+        config.status = StreamStatus::Active;
+        config.paused_at = None;
         storage::set_config(&env, &config);
 
         events::resumed(&env, &sender);
@@ -174,16 +199,36 @@ impl StreamContract {
         if sender != config.sender {
             return Err(StreamError::Unauthorized);
         }
+        if config.status == StreamStatus::Cancelled
+            || config.withdrawn_amount >= config.total_amount
+        {
+            return Err(StreamError::StreamNotActive);
+        }
 
-        let claimable = math::calculate_claimable(&config, env.ledger().timestamp());
+        let current_time = env.ledger().timestamp();
+        let claimable = math::calculate_claimable(&config, current_time);
         let remaining = math::calculate_remaining(&config);
         let refund = remaining - claimable;
 
-        // TODO: Transfer claimable to recipient.
-        // TODO: Transfer refund to sender.
+        // Settle the recipient's earned amount first...
+        let token = token::Client::new(&env, &config.asset);
+        token.transfer(
+            &env.current_contract_address(),
+            &config.recipient,
+            &claimable,
+        );
+        // ...then refund the unstreamed remainder to the sender.
+        if refund > 0 {
+            token.transfer(&env.current_contract_address(), &config.sender, &refund);
+        }
 
+        // Mark cancelled *before* setting withdrawn_amount = total_amount so a
+        // mid-transaction status read can never surface the derived `Completed`
+        // override (which is gated on status == Active).
+        config.status = StreamStatus::Cancelled;
         config.withdrawn_amount = config.total_amount;
-        config.last_update_time = env.ledger().timestamp();
+        config.last_update_time = current_time;
+        config.paused_at = None;
         storage::set_config(&env, &config);
 
         events::cancelled(&env, &sender, refund, claimable);

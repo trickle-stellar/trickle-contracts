@@ -1,5 +1,5 @@
 use soroban_sdk::{contracttype, Address, Env};
-use trickle_common::StreamInfo;
+use trickle_common::{StreamInfo, StreamStatus};
 
 /// Storage keys specific to a single stream contract instance.
 ///
@@ -42,6 +42,11 @@ pub struct StreamConfig {
     /// Ledger timestamp (Sec) of the last state change
     /// (creation, withdrawal, resume).
     pub last_update_time: u64,
+    /// Current lifecycle status of the stream.
+    pub status: StreamStatus,
+    /// Ledger timestamp (Sec) when the stream was paused.
+    /// None while the stream is active.
+    pub paused_at: Option<u64>,
 }
 
 // ─── Read Helpers ────────────────────────────────────────────────────────────
@@ -83,6 +88,7 @@ pub fn set_initialized(env: &Env) {
 }
 
 /// Store the authorized NFT contract address.
+#[allow(dead_code)] // written by the stream-nft integration (Part 3); read by update_recipient
 pub fn set_nft_contract(env: &Env, address: &Address) {
     env.storage().instance().set(&DataKey::NftContract, address);
 }

@@ -8,7 +8,7 @@ repository = "https://github.com/trickle-stellar/trickle-contracts"
 description = "Trickle stream instance — per-stream contract holding escrow and managing accrual"
 
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 soroban-sdk = { workspace = true }
