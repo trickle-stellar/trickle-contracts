@@ -239,6 +239,34 @@ fn test_pause_resume_preserves_prepause_accrual() {
 }
 
 #[test]
+fn test_withdraw_while_paused_then_resume_no_double_accrual() {
+    let ctx = setup();
+    advance(&ctx, 10); // accrue 1000
+    ctx.stream.pause(&ctx.sender);
+
+    advance(&ctx, 5); // paused: nothing new accrues
+    assert_eq!(ctx.stream.get_balance(), 1_000); // frozen at pause
+
+    // Withdraw the frozen amount while still paused (checkpoint bumps to paused_at).
+    let amount = ctx.stream.withdraw(&ctx.recipient);
+    assert_eq!(amount, 1_000);
+
+    // Resume: the pre-pause accrual was already paid out, so the excluded
+    // window (`paused_at - last_update_time`) is zero and the checkpoint
+    // simply rolls forward to now — nothing is double counted.
+    ctx.stream.resume(&ctx.sender);
+
+    advance(&ctx, 10); // post-resume: exactly another 1000
+    assert_eq!(ctx.stream.get_balance(), 1_000); // NOT 2000
+    assert_eq!(ctx.stream.get_info().withdrawn_amount, 1_000);
+
+    // Clean continuation: recipient ends with 2000 in total.
+    let second = ctx.stream.withdraw(&ctx.recipient);
+    assert_eq!(second, 1_000);
+    assert_eq!(ctx.token.balance(&ctx.recipient), 2_000);
+}
+
+#[test]
 fn test_pause_double_pause_errors() {
     let ctx = setup();
     ctx.stream.pause(&ctx.sender);
