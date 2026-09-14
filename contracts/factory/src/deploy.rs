@@ -16,6 +16,13 @@ use trickle_common::StreamError;
 /// library would pull that contract's exported entrypoints into the factory's
 /// WASM (duplicate `initialize` symbol during LTO), so we call it by symbol.
 ///
+/// The invocation is still fully typed on the way out: the child's `Val`
+/// return is decoded into `Result<(), StreamError>` (contract errors are
+/// re-trapped by the SDK and mapped back by `StreamError: TryFrom<Error>`).
+/// On failure the whole `create_stream` call short-circuits here, before any
+/// escrow transfer can move, and the failed transaction reverts the deploy —
+/// so a bad init can never be a silent no-op or leave funds stranded.
+///
 /// # Arguments
 /// * `env` - The Soroban environment.
 /// * `wasm_hash` - The pre-uploaded WASM bytecode hash of the stream contract.

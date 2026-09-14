@@ -1,9 +1,11 @@
 #![cfg(test)]
 
+extern crate std;
+
 use super::*;
 use soroban_sdk::{
-    contract, contractimpl, contracttype, testutils::Address as _, testutils::Ledger, Address, Env,
-    Vec,
+    contract, contractimpl, contracttype, testutils::Address as _, testutils::Ledger, Address,
+    BytesN, Env, IntoVal, Symbol, Val, Vec,
 };
 use trickle_common::{StreamError, StreamStatus};
 
@@ -277,6 +279,108 @@ fn test_create_stream_requires_sender_auth() {
             &DURATION
         )
         .is_err());
+}
+
+#[test]
+fn test_raw_initialize_call_decodes_stream_error() {
+    let ctx = setup();
+    let stream_address = create_stream(&ctx);
+
+    // Re-run `initialize` on the now-initialized stream through the exact raw
+    // `try_invoke_contract` path `deploy_stream` uses. The stream's own contract
+    // error must come back as a real `StreamError` (AlreadyInitialized), not a
+    // generic host trap or a silent no-op.
+    let factory_addr = Address::generate(&ctx.env);
+    let mut args: Vec<Val> = Vec::new(&ctx.env);
+    args.push_back(factory_addr.into_val(&ctx.env));
+    args.push_back(ctx.sender.clone().into_val(&ctx.env));
+    args.push_back(ctx.recipient.clone().into_val(&ctx.env));
+    args.push_back(ctx.token_address.clone().into_val(&ctx.env));
+    args.push_back(FLOW_RATE.into_val(&ctx.env));
+    args.push_back(AMOUNT.into_val(&ctx.env));
+    args.push_back(0u64.into_val(&ctx.env));
+
+    let result = ctx.env.try_invoke_contract::<(), StreamError>(
+        &stream_address,
+        &Symbol::new(&ctx.env, "initialize"),
+        args,
+    );
+    assert_eq!(result, Err(Ok(StreamError::AlreadyInitialized)));
+}
+
+#[test]
+fn test_create_stream_transfer_failure_aborts_whole_call() {
+    // Sender is funded with less than the requested amount, so the escrow
+    // transfer inside create_stream fails *after* deploy + initialize succeed.
+    // Proves the transfer strictly follows a successful init, and that the
+    // whole call fails without registering or moving anything.
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+
+    let token_address = env.register(MockToken, ());
+    let token = MockTokenClient::new(&env, &token_address);
+    token.initialize(&admin);
+    token.mint(&admin, &sender, &(AMOUNT / 2));
+
+    let wasm_hash = env.deployer().upload_contract_wasm(stream_wasm::WASM);
+    let factory_id = env.register(FactoryContract, ());
+    let factory = FactoryContractClient::new(&env, &factory_id);
+    factory.initialize(&admin, &wasm_hash);
+
+    let created =
+        factory.try_create_stream(&sender, &recipient, &token_address, &AMOUNT, &DURATION);
+    assert!(created.is_err());
+
+    // No escrow moved, and nothing was cached or indexed.
+    assert_eq!(token.balance(&sender), AMOUNT / 2);
+    assert_eq!(
+        factory.try_get_stream(&0u32),
+        Err(Ok(StreamError::StreamNotFound))
+    );
+    assert_eq!(factory.get_streams_by_sender(&sender).len(), 0);
+    assert_eq!(factory.get_streams_by_recipient(&recipient).len(), 0);
+}
+
+#[test]
+fn test_create_stream_deploy_failure_aborts_whole_call() {
+    // Factory points at a wasm hash that was never uploaded: deployment fails
+    // before any initialize runs, so the whole create_stream call must abort
+    // and no escrow can move.
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+
+    let token_address = env.register(MockToken, ());
+    let token = MockTokenClient::new(&env, &token_address);
+    token.initialize(&admin);
+    token.mint(&admin, &sender, &(AMOUNT * 10));
+
+    let bogus_hash = BytesN::from_array(&env, &[0xABu8; 32]);
+    let factory_id = env.register(FactoryContract, ());
+    let factory = FactoryContractClient::new(&env, &factory_id);
+    factory.initialize(&admin, &bogus_hash);
+
+    let created = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        factory.create_stream(&sender, &recipient, &token_address, &AMOUNT, &DURATION)
+    }));
+    assert!(
+        created.is_err(),
+        "create_stream must abort when deployment fails"
+    );
+
+    // No escrow moved, and nothing was cached.
+    assert_eq!(token.balance(&sender), AMOUNT * 10);
+    assert_eq!(
+        factory.try_get_stream(&0u32),
+        Err(Ok(StreamError::StreamNotFound))
+    );
 }
 
 #[test]
