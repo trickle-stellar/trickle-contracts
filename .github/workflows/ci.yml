@@ -38,7 +38,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32v1-none
       - uses: Swatinem/rust-cache@v2
+      # Factory tests contractimport the stream WASM, so it must be built first.
+      - run: cargo build --target wasm32v1-none --release -p trickle-stream
       - run: cargo test --workspace
 
   build:

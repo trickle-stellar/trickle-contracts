@@ -1,13 +1,11 @@
 #![no_std]
 #![allow(clippy::too_many_arguments)]
 
-#[allow(dead_code)]
 mod deploy;
 mod events;
-#[allow(dead_code)]
 mod storage;
 
-use soroban_sdk::{contract, contractimpl, Address, BytesN, Env, Vec};
+use soroban_sdk::{contract, contractimpl, token, Address, BytesN, Env, Vec};
 use trickle_common::{StreamError, StreamInfo};
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -53,10 +51,10 @@ impl FactoryContract {
     ///
     /// # Expected behavior
     /// 1. Require auth from sender.
-    /// 2. Validate: amount > 0, duration > 0, sender != recipient.
+    /// 2. Validate: amount > 0, duration > 0.
     /// 3. Compute flow_rate = amount / duration.
-    /// 4. Transfer `amount` from sender to this factory (temporary escrow).
-    /// 5. Deploy a new stream contract via `deploy::deploy_stream`.
+    /// 4. Deploy a new stream contract via `deploy::deploy_stream`.
+    /// 5. Transfer `amount` from sender into the new stream's escrow.
     /// 6. Cache StreamInfo in the registry.
     /// 7. Index the stream by sender and recipient.
     /// 8. Emit `stream_deployed` event.
@@ -95,7 +93,12 @@ impl FactoryContract {
             flow_rate,
             amount,
             current_time,
+            stream_id,
         )?;
+
+        // Transfer the full amount into the new stream's escrow.
+        let token = token::Client::new(&env, &asset);
+        token.transfer(&sender, &stream_address, &amount);
 
         // Cache stream metadata in the registry.
         let info = StreamInfo {

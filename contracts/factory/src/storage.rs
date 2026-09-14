@@ -22,6 +22,8 @@ pub enum DataKey {
 
 // ─── Read Helpers ────────────────────────────────────────────────────────────
 
+/// Return the admin address.
+#[allow(dead_code)] // used by upcoming admin-only management endpoints
 pub fn get_admin(env: &Env) -> Address {
     env.storage()
         .instance()

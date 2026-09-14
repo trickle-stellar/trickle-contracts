@@ -1,4 +1,4 @@
-use soroban_sdk::{Address, BytesN, Env};
+use soroban_sdk::{Address, BytesN, Env, IntoVal, Symbol, Val, Vec};
 use trickle_common::StreamError;
 
 /// Deploy a new stream contract instance.
@@ -6,12 +6,15 @@ use trickle_common::StreamError;
 /// Uses the factory's stored WASM hash to deploy a new Soroban contract,
 /// then calls `initialize` on the newly deployed contract.
 ///
-/// # Expected behavior
-/// 1. Load the stream WASM hash from factory storage.
-/// 2. Deploy a new contract using `env.deploy().deploy_wasm()`.
-/// 3. Create a client for the new stream contract.
-/// 4. Call `initialize(factory, sender, recipient, asset, flow_rate, total_amount, start_time)`.
-/// 5. Return the new contract's address.
+/// The new contract's address is deterministic: it is derived from this
+/// factory's address plus a salt built from `stream_id`, so a given
+/// stream ID always maps to a given contract address. Because the factory
+/// address is part of the derivation, two factories never collide.
+///
+/// `initialize` is invoked through the raw `try_invoke_contract` API instead
+/// of a generated client: linking the `trickle-stream` contract crate as a
+/// library would pull that contract's exported entrypoints into the factory's
+/// WASM (duplicate `initialize` symbol during LTO), so we call it by symbol.
 ///
 /// # Arguments
 /// * `env` - The Soroban environment.
@@ -23,11 +26,12 @@ use trickle_common::StreamError;
 /// * `flow_rate` - Per-second token flow rate.
 /// * `total_amount` - Total tokens to escrow.
 /// * `start_time` - Ledger timestamp when streaming begins.
+/// * `stream_id` - Monotonic stream ID; derives the deterministic deploy salt.
 ///
 /// # Returns
 /// The address of the newly deployed stream contract.
 pub fn deploy_stream(
-    _env: &Env,
+    env: &Env,
     wasm_hash: &BytesN<32>,
     factory: &Address,
     sender: &Address,
@@ -36,46 +40,42 @@ pub fn deploy_stream(
     flow_rate: i128,
     total_amount: i128,
     start_time: u64,
+    stream_id: u32,
 ) -> Result<Address, StreamError> {
-    // TODO: Implement actual deployment.
-    //
-    // The implementation should look approximately like:
-    //
-    //   let stream_address = env
-    //       .deploy()
-    //       .deploy_wasm(wasm_hash);
-    //
-    //   let stream_client = trickle_stream::StreamContractClient::new(
-    //       env,
-    //       &stream_address,
-    //   );
-    //
-    //   stream_client.initialize(
-    //       factory,
-    //       sender,
-    //       recipient,
-    //       asset,
-    //       &flow_rate,
-    //       &total_amount,
-    //       &start_time,
-    //   )?;
-    //
-    //   Ok(stream_address)
-    //
-    // For contributors: you will need to add `trickle-stream` as a
-    // dependency in this crate's Cargo.toml to use the generated client.
-    // The exact deploy API depends on the soroban-sdk version — check
-    // the `soroban_sdk::deploy` module docs for the current interface.
+    // Salt = 32 bytes, last 4 = big-endian stream ID. The factory address is
+    // already folded in by `with_current_contract`, so sequential IDs produce
+    // well-spaced deterministic addresses without cross-factory collisions.
+    let mut salt_bytes = [0u8; 32];
+    salt_bytes[28..].copy_from_slice(&stream_id.to_be_bytes());
+    let salt = BytesN::from_array(env, &salt_bytes);
 
-    let _ = (
-        wasm_hash,
-        factory,
-        sender,
-        recipient,
-        asset,
-        flow_rate,
-        total_amount,
-        start_time,
-    );
-    todo!("implement cross-contract stream deployment")
+    let stream_address = env
+        .deployer()
+        .with_current_contract(salt)
+        .deploy_v2(wasm_hash.clone(), ());
+
+    // `StreamContract::initialize(factory, sender, recipient, asset, flow_rate, total_amount, start_time)`.
+    let mut args: Vec<Val> = Vec::new(env);
+    args.push_back(factory.clone().into_val(env));
+    args.push_back(sender.clone().into_val(env));
+    args.push_back(recipient.clone().into_val(env));
+    args.push_back(asset.clone().into_val(env));
+    args.push_back(flow_rate.into_val(env));
+    args.push_back(total_amount.into_val(env));
+    args.push_back(start_time.into_val(env));
+
+    match env.try_invoke_contract::<(), StreamError>(
+        &stream_address,
+        &Symbol::new(env, "initialize"),
+        args,
+    ) {
+        Ok(Ok(())) => Ok(stream_address),
+        Ok(Err(_)) | Err(Err(_)) => {
+            // A freshly deployed contract can never be already-initialized and
+            // `initialize` requires no auth, so these branches only guard
+            // against unexpected host/diagnostic failures.
+            Err(StreamError::Unauthorized)
+        }
+        Err(Ok(stream_error)) => Err(stream_error),
+    }
 }
