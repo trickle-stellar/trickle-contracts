@@ -21,7 +21,7 @@ pub enum StreamStatus {
 /// This is the type callers receive from `get_info` / `get_stream`.
 /// Internal mutable state (withdrawn_amount, last_update_time) is
 /// stored in the stream contract's private `StreamConfig` struct.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 #[contracttype]
 pub struct StreamInfo {
     pub sender: Address,
